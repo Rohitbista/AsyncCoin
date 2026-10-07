@@ -4,7 +4,6 @@ import time
 
 import httpx
 
-from asynccoin.config.external_crypto_urls import COINGECKO_URL
 from asynccoin.config.settings import settings
 from asynccoin.app.models import Coin, CryptoResponse
 
@@ -53,7 +52,7 @@ async def fetch_top_5_crypto(client: httpx.AsyncClient) -> CryptoResponse:
 
         try:
             # CoinGecko's public endpoint: no API key needed.
-            response = await client.get(COINGECKO_URL, params=params)
+            response = await client.get(settings.coingecko_url, params=params)
             response.raise_for_status()
             data = _format(response.json())
         except (httpx.HTTPError, ValueError, KeyError) as e:

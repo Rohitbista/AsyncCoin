@@ -45,7 +45,3 @@ def main():
         proxy_headers=True,
         forwarded_allow_ips="*",
     )
-
-
-if __name__ == "__main__":
-    main()
