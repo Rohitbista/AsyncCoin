@@ -32,8 +32,8 @@ jobs:
         run: uv sync --frozen
 
       - name: Run Alembic Upgrade
-        run: uv run alembic upgrade head
         env:
           ASYNCCOIN_DATABASE_URL: ${{ secrets.ASYNCCOIN_DATABASE_URL }}
-          ASYNCCOIN_COINGECKO_URL: "https://coingecko.com" # Prefixed placeholder
-          ASYNCCOIN_JWT_SECRET: "temporary-github-actions-migration-secret" # Prefixed placeholder
+          ASYNCCOIN_COINGECKO_URL: "https://coingecko.com"
+          ASYNCCOIN_JWT_SECRET: "temporary-github-actions-migration-secret"
+        run: uv run alembic upgrade head
