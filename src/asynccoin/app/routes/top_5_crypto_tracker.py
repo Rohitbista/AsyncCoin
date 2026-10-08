@@ -1,12 +1,14 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from asynccoin.app.deps import get_current_user
 from asynccoin.app.models import CryptoResponse
 from asynccoin.services.fetch_crypto import CryptoFetchError, fetch_top_5_crypto
 
-router = APIRouter()
+# Router-level dependency: EVERY route on this router requires a valid login,
+# including any you add later. (Public routes live on `app` in server.py.)
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 _CTX = "asynccoin/app/routes/top_5_crypto_tracker"
-
 
 @router.get("/api/crypto/top5", response_model=CryptoResponse)
 async def top_5_crypto(request: Request) -> CryptoResponse:
