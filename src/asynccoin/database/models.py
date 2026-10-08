@@ -4,7 +4,9 @@ from datetime import datetime
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    BigInteger,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     String,
@@ -83,3 +85,46 @@ class UserToken(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="tokens")
+
+class CryptoSnapshot(Base):
+    """One row per coin per sync. Append-only: every sync adds a new batch of rows
+    (all sharing the same `fetched_at`), nothing is overwritten. This gives price
+    history for free. "Latest" data = the rows with the newest `fetched_at`.
+    Shared by all users (not tied to any user)."""
+ 
+    __tablename__ = "crypto_snapshots"
+    __table_args__ = (
+        Index("ix_crypto_snapshots_coin_id_fetched_at", "coin_id", "fetched_at"),
+        Index("ix_crypto_snapshots_fetched_at_rank", "fetched_at", "market_cap_rank"),
+    )
+ 
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+ 
+    # CoinGecko's id, e.g. "bitcoin" (stable identifier; symbols are not unique).
+    coin_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    image: Mapped[str | None] = mapped_column(String(512))
+ 
+    current_price: Mapped[float | None] = mapped_column(Float)
+    market_cap: Mapped[float | None] = mapped_column(Float)
+    market_cap_rank: Mapped[int | None] = mapped_column()
+    fully_diluted_valuation: Mapped[float | None] = mapped_column(Float)
+    total_volume: Mapped[float | None] = mapped_column(Float)
+    high_24h: Mapped[float | None] = mapped_column(Float)
+    low_24h: Mapped[float | None] = mapped_column(Float)
+    price_change_24h: Mapped[float | None] = mapped_column(Float)
+    price_change_percentage_24h: Mapped[float | None] = mapped_column(Float)
+    market_cap_change_24h: Mapped[float | None] = mapped_column(Float)
+    market_cap_change_percentage_24h: Mapped[float | None] = mapped_column(Float)
+    circulating_supply: Mapped[float | None] = mapped_column(Float)
+    total_supply: Mapped[float | None] = mapped_column(Float)
+    max_supply: Mapped[float | None] = mapped_column(Float)
+    ath: Mapped[float | None] = mapped_column(Float)
+    ath_change_percentage: Mapped[float | None] = mapped_column(Float)
+    ath_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    atl: Mapped[float | None] = mapped_column(Float)
+    atl_change_percentage: Mapped[float | None] = mapped_column(Float)
+    atl_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_last_updated: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

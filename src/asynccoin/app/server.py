@@ -1,4 +1,5 @@
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 
 import httpx
 import uvicorn
@@ -9,13 +10,27 @@ from asynccoin.app.routes.auth import router as auth_router
 from asynccoin.app.routes.crypto_tracker import router as top_5_router
 from asynccoin.config.settings import settings
 from asynccoin.database.session import engine
+from asynccoin.services.crypto_sync import run_sync_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # One shared HTTP client for the whole app (connection pooling).
     app.state.http_client = httpx.AsyncClient(timeout=settings.request_timeout_seconds)
+
+    # Background job: pulls all coins from CoinGecko once now, then every
+    # settings.sync_interval_seconds, appending snapshots to the DB.
+    # It runs as a task so server startup isn't blocked by the (slow) first pull.
+    sync_task = None
+    if settings.sync_enabled:
+        sync_task = asyncio.create_task(run_sync_scheduler(app.state.http_client), name="crypto-sync")
+
     yield
+
+    if sync_task:
+        sync_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await sync_task
     await app.state.http_client.aclose()
     await engine.dispose()  # close DB connection pool
 
