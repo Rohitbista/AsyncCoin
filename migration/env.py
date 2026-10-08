@@ -1,3 +1,4 @@
+import os
 import asyncio
 from logging.config import fileConfig
 
@@ -11,22 +12,27 @@ from asynccoin.config.settings import settings
 from asynccoin.database import models  # noqa: F401  (registers tables on Base.metadata)
 from asynccoin.database.base import Base
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
+# this is the Alembic Config object
 config = context.config
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Single source of truth for the URL; '%' must be escaped for ConfigParser.
-config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
+# 1. Fetch URL from GitHub Actions secret/Environment variable first
+database_url = os.getenv("ASYNCCOIN_DATABASE_URL")
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
+# 2. Fall back to your app settings if the environment variable isn't set
+if not database_url:
+    database_url = settings.database_url
+
+# 3. Ensure the URL uses the async driver if it's missing (e.g. for postgres)
+if database_url.startswith("postgresql://"):
+    database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+# 4. Set the URL into the Alembic config, escaping '%' for the ConfigParser
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
+
+# target_metadata definition and your run_migrations_offline / online functions follow below...
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
