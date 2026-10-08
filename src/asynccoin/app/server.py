@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from asynccoin.app.routes.auth import router as auth_router
-from asynccoin.app.routes.top_5_crypto_tracker import router as top_5_router
+from asynccoin.app.routes.crypto_tracker import router as top_5_router
 from asynccoin.config.settings import settings
 from asynccoin.database.session import engine
 
