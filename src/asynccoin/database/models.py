@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     String,
+    UniqueConstraint,
     func,
     text,
 )
@@ -85,6 +86,44 @@ class UserToken(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="tokens")
+
+class WatchlistItem(Base):
+    """One row per (user, coin) the user wants to track.
+ 
+    `coin_id` is the CoinGecko id (same value as crypto_snapshots.coin_id). It is
+    deliberately NOT a foreign key: crypto_snapshots is append-only with many rows
+    per coin, so there is no single row to reference. The service layer validates
+    that the coin exists in crypto_snapshots before inserting.
+    """
+ 
+    __tablename__ = "user_watchlist"
+    __table_args__ = (
+        UniqueConstraint("user_id", "coin_id", name="uq_user_watchlist_user_id_coin_id"),
+        CheckConstraint("coin_id = lower(coin_id)", name="watchlist_coin_id_lowercase"),
+        CheckConstraint("alert_above IS NULL OR alert_above > 0", name="watchlist_alert_above_positive"),
+        CheckConstraint("alert_below IS NULL OR alert_below > 0", name="watchlist_alert_below_positive"),
+        Index("ix_user_watchlist_user_id", "user_id"),
+    )
+ 
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    coin_id: Mapped[str] = mapped_column(String(128), nullable=False)
+ 
+    # Optional personal extras.
+    note: Mapped[str | None] = mapped_column(String(500))
+    alert_above: Mapped[float | None] = mapped_column(Float)  # flag when price >= this
+    alert_below: Mapped[float | None] = mapped_column(Float)  # flag when price <= this
+ 
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+ 
+    user: Mapped[User] = relationship(back_populates="watchlist")
 
 class CryptoSnapshot(Base):
     """One row per coin per sync. Append-only: every sync adds a new batch of rows

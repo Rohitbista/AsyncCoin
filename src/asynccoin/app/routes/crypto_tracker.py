@@ -43,7 +43,7 @@ from asynccoin.services.fetch_crypto import CryptoFetchError, fetch_top_5_crypto
 # including any you add later. (Public routes live on `app` in server.py.)
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
-_CTX = "asynccoin/app/routes/top_5_crypto_tracker"
+_CTX = "asynccoin/app/routes/crypto_tracker"
 
 @router.get("/api/crypto/top5", response_model=CryptoResponse)
 async def top_5_crypto(request: Request, current_user: dict = Depends(get_current_user)) -> CryptoResponse:
