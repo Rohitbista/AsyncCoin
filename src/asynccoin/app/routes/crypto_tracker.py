@@ -1,26 +1,3 @@
-# from fastapi import APIRouter, Depends, HTTPException, Request
-
-# from asynccoin.app.deps import get_current_user
-# from asynccoin.app.models import CryptoResponse
-# from asynccoin.services.fetch_crypto import CryptoFetchError, fetch_top_5_crypto
-
-# # Router-level dependency: EVERY route on this router requires a valid login,
-# # including any you add later. (Public routes live on `app` in server.py.)
-# router = APIRouter(dependencies=[Depends(get_current_user)])
-
-# _CTX = "asynccoin/app/routes/top_5_crypto_tracker"
-
-# @router.get("/api/crypto/top5", response_model=CryptoResponse)
-# async def top_5_crypto(request: Request, current_user: dict = Depends(get_current_user)) -> CryptoResponse:
-#     try:
-#         # Now you can access the user_id (adjust based on your actual model/dict structure)
-#         user_id = current_user.id 
-#         print(f"User {user_id} is requesting crypto data.")
-
-#         return await fetch_top_5_crypto(request.app.state.http_client)
-#     except CryptoFetchError as e:
-#         raise HTTPException(status_code=502, detail=str(e))
-
 from datetime import datetime
 from typing import Literal
 
@@ -34,27 +11,14 @@ from asynccoin.app.crypto_schemas import (
     CoinSnapshotOut,
 )
 from asynccoin.app.deps import get_current_user
-from asynccoin.app.models import CryptoResponse
 from asynccoin.database import crypto_repo
 from asynccoin.database.session import get_db
-from asynccoin.services.fetch_crypto import CryptoFetchError, fetch_top_5_crypto
 
 # Router-level dependency: EVERY route on this router requires a valid login,
 # including any you add later. (Public routes live on `app` in server.py.)
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/crypto", tags=["general_crypto"], dependencies=[Depends(get_current_user)])
 
 _CTX = "asynccoin/app/routes/crypto_tracker"
-
-@router.get("/api/crypto/top5", response_model=CryptoResponse)
-async def top_5_crypto(request: Request, current_user: dict = Depends(get_current_user)) -> CryptoResponse:
-    try:
-        # Now you can access the user_id (adjust based on your actual model/dict structure)
-        user_id = current_user.id 
-        print(f"User {user_id} is requesting crypto data.")
-
-        return await fetch_top_5_crypto(request.app.state.http_client)
-    except CryptoFetchError as e:
-        raise HTTPException(status_code=502, detail=str(e))
 
 # ---------------------------------------------------------------------------
 # DB-backed endpoints: served from the crypto_snapshots table, filled by the
@@ -62,7 +26,7 @@ async def top_5_crypto(request: Request, current_user: dict = Depends(get_curren
 # ---------------------------------------------------------------------------
 
 
-@router.get("/api/crypto/coins", response_model=CoinListResponse)
+@router.get("/coins", response_model=CoinListResponse)
 async def list_coins(
     limit: int = Query(50, ge=1, le=250),
     offset: int = Query(0, ge=0),
@@ -86,7 +50,7 @@ async def list_coins(
     )
 
 
-@router.get("/api/crypto/top", response_model=CoinListShortResponse)
+@router.get("/top", response_model=CoinListShortResponse)
 async def top_coins(
     limit: int = Query(10, ge=1, le=100), db: AsyncSession = Depends(get_db)
 ) -> CoinListShortResponse:
@@ -97,7 +61,7 @@ async def top_coins(
     return CoinListShortResponse(last_synced=last_synced, data=[CoinSnapshotOut.model_validate(r) for r in rows])
 
 
-@router.get("/api/crypto/movers", response_model=CoinListShortResponse)
+@router.get("/movers", response_model=CoinListShortResponse)
 async def movers(
     direction: Literal["gainers", "losers"] = "gainers",
     limit: int = Query(10, ge=1, le=100),
@@ -108,7 +72,7 @@ async def movers(
     return CoinListShortResponse(last_synced=last_synced, data=[CoinSnapshotOut.model_validate(r) for r in rows])
 
 
-@router.get("/api/crypto/coins/{coin_id}", response_model=CoinSnapshotOut)
+@router.get("/coins/{coin_id}", response_model=CoinSnapshotOut)
 async def get_coin(coin_id: str, db: AsyncSession = Depends(get_db)) -> CoinSnapshotOut:
     row = await crypto_repo.get_latest_for_coin(db, coin_id.lower())
     if row is None:
@@ -116,7 +80,7 @@ async def get_coin(coin_id: str, db: AsyncSession = Depends(get_db)) -> CoinSnap
     return CoinSnapshotOut.model_validate(row)
 
 
-@router.get("/api/crypto/coins/{coin_id}/history", response_model=CoinHistoryResponse)
+@router.get("/coins/{coin_id}/history", response_model=CoinHistoryResponse)
 async def coin_history(
     coin_id: str,
     since: datetime | None = Query(None, description="ISO timestamp, e.g. 2026-10-01T00:00:00Z"),

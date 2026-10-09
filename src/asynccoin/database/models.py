@@ -55,6 +55,9 @@ class User(Base):
     tokens: Mapped[list["UserToken"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
+    watchlist: Mapped[list["WatchlistItem"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
+    )
 
 
 class UserToken(Base):

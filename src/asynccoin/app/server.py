@@ -7,10 +7,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from asynccoin.app.routes.auth import router as auth_router
-from asynccoin.app.routes.crypto_tracker import router as top_5_router
+from asynccoin.app.routes.crypto_tracker import router as crypto_router
 from asynccoin.config.settings import settings
 from asynccoin.database.session import engine
 from asynccoin.services.crypto_sync import run_sync_scheduler
+from asynccoin.app.routes.personal_crypto import router as watchlist_router
 
 
 @asynccontextmanager
@@ -46,7 +47,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(top_5_router)
+app.include_router(crypto_router)
+app.include_router(watchlist_router)
 app.include_router(auth_router)
 
 
