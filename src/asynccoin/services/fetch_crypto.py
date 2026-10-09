@@ -5,7 +5,7 @@ import time
 import httpx
 
 from asynccoin.config.settings import settings
-from asynccoin.app.models import Coin, CryptoResponse
+from asynccoin.app.schemas.models import Coin, CryptoResponse
 
 _CTX = "asynccoin/services/fetch_crypto"
 logger = logging.getLogger(__name__)

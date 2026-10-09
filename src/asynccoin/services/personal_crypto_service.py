@@ -11,8 +11,8 @@ from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from asynccoin.app.crypto_schemas import CoinSnapshotOut
-from asynccoin.app.personal_crypto_schemas import (
+from asynccoin.app.schemas.crypto_schemas import CoinSnapshotOut
+from asynccoin.app.schemas.personal_crypto_schemas import (
     CoinPerformance,
     WatchlistAddResponse,
     WatchlistAlertsResponse,

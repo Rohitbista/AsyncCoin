@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from asynccoin.app.deps import get_current_user
-from asynccoin.app.personal_crypto_schemas import (
+from asynccoin.app.schemas.personal_crypto_schemas import (
     WatchlistAddRequest,
     WatchlistAddResponse,
     WatchlistAlertsResponse,

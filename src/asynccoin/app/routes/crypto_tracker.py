@@ -4,7 +4,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from asynccoin.app.crypto_schemas import (
+from asynccoin.app.schemas.crypto_schemas import (
     CoinHistoryResponse,
     CoinListResponse,
     CoinListShortResponse,
