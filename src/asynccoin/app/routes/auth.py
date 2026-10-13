@@ -5,8 +5,14 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from asynccoin.app.deps import get_current_user
-from asynccoin.app.schemas_auth import (
+from asynccoin.app.deps import (
+    get_current_user,
+    login_limiter,
+    register_limiter,
+    resend_limiter,
+    verify_limiter,
+)
+from asynccoin.app.schemas.schemas_auth import (
     LoginRequest,
     MessageResponse,
     RegisterRequest,
@@ -41,6 +47,9 @@ def _now() -> datetime:
 async def _issue_verification(
     db: AsyncSession, user: User, request: Request, background: BackgroundTasks
 ) -> None:
+    # Read these up front: after db.commit() ORM attributes may be expired, and
+    # lazily reloading them in async code raises MissingGreenlet.
+    user_id, email = user.id, user.email
     now = _now()
 
     # Cooldown: don't spam inboxes (or Brevo quota) if they just got one.
@@ -48,7 +57,7 @@ async def _issue_verification(
     recent = await db.scalar(
         select(UserToken.id)
         .where(
-            UserToken.user_id == user.id,
+            UserToken.user_id == user_id,
             UserToken.purpose == PURPOSE_VERIFY_EMAIL,
             UserToken.created_at > cutoff,
         )
@@ -61,7 +70,7 @@ async def _issue_verification(
     await db.execute(
         update(UserToken)
         .where(
-            UserToken.user_id == user.id,
+            UserToken.user_id == user_id,
             UserToken.purpose == PURPOSE_VERIFY_EMAIL,
             UserToken.used_at.is_(None),
         )
@@ -70,17 +79,22 @@ async def _issue_verification(
     raw, hashed = generate_token()
     db.add(
         UserToken(
-            user_id=user.id,
+            user_id=user_id,
             purpose=PURPOSE_VERIFY_EMAIL,
             token_hash=hashed,
             expires_at=now + timedelta(hours=settings.verification_token_ttl_hours),
         )
     )
     await db.commit()
-    background.add_task(send_verification_email, request.app.state.http_client, user.email, raw)
+    background.add_task(send_verification_email, request.app.state.http_client, email, raw)
 
 
-@router.post("/register", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/register",
+    response_model=MessageResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(register_limiter)],
+)
 async def register(
     body: RegisterRequest,
     request: Request,
@@ -88,17 +102,23 @@ async def register(
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
     email = body.email.lower()
+
+    # Hash BEFORE the lookup so new and existing emails take the same time;
+    # otherwise response latency reveals whether an account exists.
+    password_hash = await hash_password(body.password)
+
     user = await db.scalar(select(User).where(User.email == email))
 
     if user is None:
-        user = User(email=email, password_hash=await hash_password(body.password))
+        user = User(email=email, password_hash=password_hash)
         db.add(user)
         try:
             await db.commit()
         except IntegrityError:  # two simultaneous registrations for the same email
             await db.rollback()
             return MessageResponse(message=_GENERIC_MSG)
-    elif user.is_verified:
+        await db.refresh(user)  # reload attributes expired by the commit
+    elif user.is_verified or not user.is_active:
         return MessageResponse(message=_GENERIC_MSG)
 
     # New user, or an existing *unverified* one (resend; password is NOT overwritten).
@@ -106,7 +126,9 @@ async def register(
     return MessageResponse(message=_GENERIC_MSG)
 
 
-@router.post("/verify-email", response_model=MessageResponse)
+@router.post(
+    "/verify-email", response_model=MessageResponse, dependencies=[Depends(verify_limiter)]
+)
 async def verify_email(body: VerifyEmailRequest, db: AsyncSession = Depends(get_db)) -> MessageResponse:
     # POST (not GET) so email link scanners that prefetch URLs can't burn the token.
     now = _now()
@@ -122,6 +144,9 @@ async def verify_email(body: VerifyEmailRequest, db: AsyncSession = Depends(get_
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired verification link")
 
     user = await db.get(User, token.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired verification link")
+
     token.used_at = now
     user.is_verified = True
     user.email_verified_at = now
@@ -129,7 +154,12 @@ async def verify_email(body: VerifyEmailRequest, db: AsyncSession = Depends(get_
     return MessageResponse(message="Email verified. You can now log in.")
 
 
-@router.post("/resend-verification", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/resend-verification",
+    response_model=MessageResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(resend_limiter)],
+)
 async def resend_verification(
     body: ResendVerificationRequest,
     request: Request,
@@ -154,14 +184,15 @@ async def _authenticate(db: AsyncSession, email: str, password: str) -> TokenRes
     if not user.is_verified:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Please verify your email before logging in")
 
+    user_id = user.id  # read before commit expires the instance
     user.last_login_at = _now()
     await db.commit()
 
-    token, expires_in = create_access_token(str(user.id))
+    token, expires_in = create_access_token(str(user_id))
     return TokenResponse(access_token=token, expires_in=expires_in)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, dependencies=[Depends(login_limiter)])
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
     """Log in with email + password. Copy the returned access_token into Authorize."""
     return await _authenticate(db, body.email, body.password)
