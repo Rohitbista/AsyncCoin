@@ -1,9 +1,13 @@
 from datetime import datetime
 from typing import Literal
+import re
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .crypto_schemas import CoinSnapshotOut
+
+# CoinGecko ids are lowercase letters/digits with hyphens (a few have dots/underscores).
+_COIN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 
 
 # ----------------------------- requests -----------------------------
@@ -20,15 +24,23 @@ class WatchlistAddRequest(BaseModel):
             raise ValueError("coin_ids must contain at least one non-empty id")
         if any(len(c) > 128 for c in cleaned):
             raise ValueError("coin id too long")
+        if any(not _COIN_ID_RE.match(c) for c in cleaned):
+            raise ValueError("coin ids may only contain a-z, 0-9, '.', '_' and '-'")
         return list(dict.fromkeys(cleaned))  # de-duplicate, keep order
 
 
 class WatchlistUpdateRequest(BaseModel):
-    """Partial update. Send only the fields you want to change; send null to clear one."""
+    """Partial update. Send only the fields you want to change; send null to clear one.
+
+    Note: if only one alert is sent, the service must still check it against the
+    stored value of the other (alert_below < alert_above), since this validator
+    only sees what is in the request body.
+    """
 
     note: str | None = Field(None, max_length=500)
-    alert_above: float | None = Field(None, gt=0)
-    alert_below: float | None = Field(None, gt=0)
+    # allow_inf_nan=False: reject NaN/Infinity, which would break alert comparisons.
+    alert_above: float | None = Field(None, gt=0, allow_inf_nan=False)
+    alert_below: float | None = Field(None, gt=0, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def check_alert_range(self):
