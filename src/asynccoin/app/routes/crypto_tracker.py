@@ -1,16 +1,16 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from asynccoin.app.deps import get_current_user
 from asynccoin.app.schemas.crypto_schemas import (
     CoinHistoryResponse,
     CoinListResponse,
     CoinListShortResponse,
     CoinSnapshotOut,
 )
-from asynccoin.app.deps import get_current_user
 from asynccoin.database import crypto_repo
 from asynccoin.database.session import get_db
 
@@ -18,7 +18,16 @@ from asynccoin.database.session import get_db
 # including any you add later. (Public routes live on `app` in server.py.)
 router = APIRouter(prefix="/api/crypto", tags=["general_crypto"], dependencies=[Depends(get_current_user)])
 
-_CTX = "asynccoin/app/routes/crypto_tracker"
+_CoinId = Path(min_length=1, max_length=128)
+
+
+def _as_utc(dt: datetime | None) -> datetime | None:
+    """Treat naive timestamps as UTC. Comparing naive vs tz-aware datetimes in the
+    DB query would otherwise raise and surface as a 500."""
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
 
 # ---------------------------------------------------------------------------
 # DB-backed endpoints: served from the crypto_snapshots table, filled by the
@@ -54,7 +63,7 @@ async def list_coins(
 async def top_coins(
     limit: int = Query(10, ge=1, le=100), db: AsyncSession = Depends(get_db)
 ) -> CoinListShortResponse:
-    """Top N by market cap, from the saved data (DB version of /top5)."""
+    """Top N by market cap, from the saved data."""
     rows, _, last_synced = await crypto_repo.list_latest(
         db, limit=limit, offset=0, search=None, sort_by="market_cap_rank", descending=False
     )
@@ -73,8 +82,8 @@ async def movers(
 
 
 @router.get("/coins/{coin_id}", response_model=CoinSnapshotOut)
-async def get_coin(coin_id: str, db: AsyncSession = Depends(get_db)) -> CoinSnapshotOut:
-    row = await crypto_repo.get_latest_for_coin(db, coin_id.lower())
+async def get_coin(coin_id: str = _CoinId, db: AsyncSession = Depends(get_db)) -> CoinSnapshotOut:
+    row = await crypto_repo.get_latest_for_coin(db, coin_id.strip().lower())
     if row is None:
         raise HTTPException(status_code=404, detail="Coin not found")
     return CoinSnapshotOut.model_validate(row)
@@ -82,14 +91,20 @@ async def get_coin(coin_id: str, db: AsyncSession = Depends(get_db)) -> CoinSnap
 
 @router.get("/coins/{coin_id}/history", response_model=CoinHistoryResponse)
 async def coin_history(
-    coin_id: str,
+    coin_id: str = _CoinId,
     since: datetime | None = Query(None, description="ISO timestamp, e.g. 2026-10-01T00:00:00Z"),
-    until: datetime | None = None,
+    until: datetime | None = Query(None, description="ISO timestamp"),
     limit: int = Query(100, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
 ) -> CoinHistoryResponse:
     """Price/market history, one point per sync (newest first)."""
-    rows = await crypto_repo.get_history_for_coin(db, coin_id.lower(), since=since, until=until, limit=limit)
-    if not rows:
+    coin_id = coin_id.strip().lower()
+    since, until = _as_utc(since), _as_utc(until)
+    if since and until and since > until:
+        raise HTTPException(status_code=422, detail="'since' must not be after 'until'")
+
+    rows = await crypto_repo.get_history_for_coin(db, coin_id, since=since, until=until, limit=limit)
+    # Only 404 when the coin has no history at all; an empty filtered window is a valid empty result.
+    if not rows and since is None and until is None:
         raise HTTPException(status_code=404, detail="No history for this coin")
-    return CoinHistoryResponse(coin_id=coin_id.lower(), count=len(rows), data=rows)
+    return CoinHistoryResponse(coin_id=coin_id, count=len(rows), data=rows)
