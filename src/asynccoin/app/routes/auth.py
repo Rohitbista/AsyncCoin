@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from asynccoin.app.deps import get_current_user
-from asynccoin.app.schemas_auth import (
+from asynccoin.app.schemas.schemas_auth import (
     LoginRequest,
     MessageResponse,
     RegisterRequest,

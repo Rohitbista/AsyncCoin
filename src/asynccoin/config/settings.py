@@ -17,6 +17,18 @@ class Settings(BaseSettings):
     vs_currency: str = "usd"
     coin_ids: str = "bitcoin,ethereum,tether,binancecoin,solana"
 
+    # --- Crypto sync (background job that fills the crypto_snapshots table) ---
+    sync_enabled: bool = True
+    sync_interval_seconds: int = 3 * 60 * 60  # every 3 hours
+    # CoinGecko /coins/markets returns max 250 coins per page. 4 pages = top 1000 coins.
+    # (There are 15,000+ coins in total; the free tier is rate-limited, so raise
+    # this gradually.)
+    sync_per_page: int = 250
+    sync_max_pages: int = 4
+    sync_page_delay_seconds: float = 8.0  # pause between pages to respect rate limits
+    sync_rate_limit_retries: int = 3  # retries per page on HTTP 429
+    sync_rate_limit_wait_seconds: float = 60.0
+
     # --- Auth ---
     jwt_secret: str  # generate with: python -c "import secrets; print(secrets.token_urlsafe(48))"
     jwt_algorithm: str = "HS256"
