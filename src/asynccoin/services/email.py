@@ -26,7 +26,7 @@ async def _send(client: httpx.AsyncClient, to_email: str, subject: str, html: st
 
 async def send_verification_email(client: httpx.AsyncClient, to_email: str, raw_token: str) -> None:
     """Runs as a background task: never raises (user can hit 'resend')."""
-    link = f"{settings.frontend_verify_url}?{urlencode({'token': raw_token})}"
+    link = f"{settings.frontend_base_url+"#/verify"}?{urlencode({'token': raw_token})}"
 
     if not settings.brevo_api_key:
         logger.warning("Brevo not configured. Verification link for %s: %s", to_email, link)
