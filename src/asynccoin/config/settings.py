@@ -36,13 +36,16 @@ class Settings(BaseSettings):
 
     # --- Email verification (Brevo) ---
     # If brevo_api_key is empty, the verification link is logged instead of emailed (dev mode).
-    brevo_api_key: str = ""
+    brevo_api_key: str
     brevo_sender_email: str = ""  # must be a sender/domain verified in Brevo
     brevo_sender_name: str = "Async Coin"
     # Frontend page that receives ?token=... and POSTs it to /api/auth/verify-email
-    frontend_verify_url: str = "http://localhost:3000/verify-email"
+    frontend_base_url: str
+    #frontend_verify_url: str = frontend_base_url + "#/verify" if frontend_base_url else "http://localhost:5500"
     verification_token_ttl_hours: int = 24
     verification_resend_cooldown_seconds: int = 600
+
+    password_reset_token_ttl_minutes: int = 60
 
 
 settings = Settings()

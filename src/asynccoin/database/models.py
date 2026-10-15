@@ -19,9 +19,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from asynccoin.database.base import Base
 
-# Token purposes (one table serves email verification now, password reset later).
+# Token purposes (one table serves email verification and password reset).
+# If you add a purpose here, the DB CHECK constraint needs an Alembic migration too.
 PURPOSE_VERIFY_EMAIL = "verify_email"
-PURPOSE_PASSWORD_RESET = "password_reset"
+PURPOSE_RESET_PASSWORD = "reset_password"
 
 
 class User(Base):
@@ -66,7 +67,8 @@ class UserToken(Base):
     __tablename__ = "user_tokens"
     __table_args__ = (
         CheckConstraint(
-            "purpose IN ('verify_email', 'password_reset')", name="purpose_valid"
+            f"purpose IN ('{PURPOSE_VERIFY_EMAIL}', '{PURPOSE_RESET_PASSWORD}')",
+            name="purpose_valid",
         ),
         Index("ix_user_tokens_user_id_purpose", "user_id", "purpose"),
     )
