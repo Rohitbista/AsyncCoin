@@ -1,5 +1,5 @@
 // ====== CONFIG: set this to your deployed backend (must be HTTPS when hosted on GitHub Pages) ======
-const API_BASE = "http://localhost:8000";
+const API_BASE = "https://asynccoin.fastapicloud.dev";
 // ================================================================================================
 
 const $ = (s, el = document) => el.querySelector(s);
