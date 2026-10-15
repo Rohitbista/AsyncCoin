@@ -45,5 +45,7 @@ class Settings(BaseSettings):
     verification_token_ttl_hours: int = 24
     verification_resend_cooldown_seconds: int = 600
 
+    password_reset_token_ttl_minutes: int = 60
+
 
 settings = Settings()

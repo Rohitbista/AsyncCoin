@@ -37,8 +37,8 @@ const loading = () => app.innerHTML = `<p class="empty">Loading…</p>`;
 const fail = e => app.innerHTML = note(e.message, true);
 
 // ---------- router ----------
-const routes = { market, watchlist, alerts, login: loginView, register: registerView, verify: verifyView };
-const publicRoutes = ["login", "register", "verify"];
+const routes = { market, watchlist, alerts, login: loginView, register: registerView, verify: verifyView, forgot: forgotView, reset: resetView };
+const publicRoutes = ["login", "register", "verify", "forgot", "reset"];
 async function route() {
   const [path, qs] = location.hash.slice(2).split("?");
   const name = routes[path] ? path : "market";
@@ -70,19 +70,38 @@ async function submit(form, fn) {
 const emailPw = `<label for="e">Email</label><input id="e" name="email" type="email" autocomplete="email" required>
 <label for="p">Password</label><input id="p" name="password" type="password" minlength="8" maxlength="128" required>`;
 
+const confirmPw = `<label for="p2">Confirm password</label><input id="p2" name="confirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>`;
+const back = `<p class="sub" style="margin:1rem 0 0"><a href="#/login">Back to log in</a></p>`;
+
 function loginView() {
   const f = authForm("Log in", "Track the market and your watchlist.", emailPw, "Log in",
-    `<p class="sub" style="margin:1rem 0 0">New here? <a href="#/register">Create an account</a><br>Didn't get the email? <button type="button" class="link" id="re">Resend verification</button></p>`);
-  $("#re").onclick = async () => {
-    const email = f.email.value; if (!email) return $("#msg").innerHTML = note("Enter your email first.", true);
-    try { await api("/api/auth/resend-verification", { method: "POST", body: { email } }); $("#msg").innerHTML = note("If that email can be verified, a new link is on its way."); } catch (e) { $("#msg").innerHTML = note(e.message, true); }
-  };
+    `<p class="sub" style="margin:1rem 0 0">New here? <a href="#/register">Create an account</a><br>Forgot your password? <a href="#/forgot">Reset it</a></p>`);
   submit(f, async d => { const r = await api("/api/auth/login", { method: "POST", body: d }); login(r.access_token, r.expires_in, d.email.toLowerCase()); location.hash = "#/market"; });
 }
 function registerView() {
-  const f = authForm("Create account", "You'll get an email to verify your address.", emailPw, "Create account",
+  const f = authForm("Create account", "You'll get an email to verify your address.", emailPw + confirmPw, "Create account",
     `<p class="sub" style="margin:1rem 0 0">Have an account? <a href="#/login">Log in</a></p>`);
-  submit(f, async d => { const r = await api("/api/auth/register", { method: "POST", body: d }); $("#msg").innerHTML = note(r.message); });
+  submit(f, async d => {
+    if (d.password !== d.confirm) throw new Error("Passwords don't match.");
+    const r = await api("/api/auth/register", { method: "POST", body: { email: d.email, password: d.password } });
+    f.reset(); $("#msg").innerHTML = note(r.message);
+  });
+}
+function forgotView() {
+  const f = authForm("Forgot password", "Enter your email and we'll send a link to set a new password.",
+    `<label for="e">Email</label><input id="e" name="email" type="email" autocomplete="email" required>`, "Send reset link", back);
+  submit(f, async d => { const r = await api("/api/auth/forgot-password", { method: "POST", body: { email: d.email } }); $("#msg").innerHTML = note(r.message); });
+}
+function resetView(q) {
+  const t = q.get("token");
+  if (!t) { app.innerHTML = `<div class="panel auth"><h1>Reset password</h1>${note("This link is missing its token.", true)}<a href="#/forgot">Request a new link</a></div>`; return; }
+  const f = authForm("Set a new password", "Choose a password you'll remember.",
+    `<label for="p">New password</label><input id="p" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required>` + confirmPw.replace("Confirm password", "Confirm new password"), "Save password", back);
+  submit(f, async d => {
+    if (d.password !== d.confirm) throw new Error("Passwords don't match.");
+    const r = await api("/api/auth/reset-password", { method: "POST", body: { token: t, new_password: d.password } });
+    f.innerHTML = `<h1>Password updated</h1>${note(r.message)}<a class="btn" href="#/login">Log in</a>`;
+  });
 }
 async function verifyView(q) {
   const t = q.get("token");

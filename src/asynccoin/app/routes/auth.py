@@ -11,6 +11,8 @@ from asynccoin.app.deps import (
     register_limiter,
     resend_limiter,
     verify_limiter,
+    forgot_limiter, 
+    reset_limiter, 
 )
 from asynccoin.app.schemas.schemas_auth import (
     LoginRequest,
@@ -20,11 +22,13 @@ from asynccoin.app.schemas.schemas_auth import (
     TokenResponse,
     UserOut,
     VerifyEmailRequest,
+    ForgotPasswordRequest, 
+    ResetPasswordRequest, 
 )
 from asynccoin.config.settings import settings
-from asynccoin.database.models import PURPOSE_VERIFY_EMAIL, User, UserToken
+from asynccoin.database.models import PURPOSE_VERIFY_EMAIL, User, UserToken, PURPOSE_RESET_PASSWORD
 from asynccoin.database.session import get_db
-from asynccoin.services.email import send_verification_email
+from asynccoin.services.email import send_verification_email, send_password_reset_email
 from asynccoin.services.security import (
     DUMMY_HASH,
     create_access_token,
@@ -39,54 +43,45 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # Same response whether or not the email already exists (no account enumeration).
 _GENERIC_MSG = "If this email can be used, a verification link is on its way."
 
-
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
+_RESET_MSG = "If an account exists for this email, a reset link is on its way."
 
-async def _issue_verification(
-    db: AsyncSession, user: User, request: Request, background: BackgroundTasks
+async def _issue_token(
+    db: AsyncSession, user: User, request: Request, background: BackgroundTasks,
+    *, purpose: str, ttl: timedelta, sender,
 ) -> None:
-    # Read these up front: after db.commit() ORM attributes may be expired, and
-    # lazily reloading them in async code raises MissingGreenlet.
     user_id, email = user.id, user.email
     now = _now()
 
-    # Cooldown: don't spam inboxes (or Brevo quota) if they just got one.
     cutoff = now - timedelta(seconds=settings.verification_resend_cooldown_seconds)
     recent = await db.scalar(
         select(UserToken.id)
-        .where(
-            UserToken.user_id == user_id,
-            UserToken.purpose == PURPOSE_VERIFY_EMAIL,
-            UserToken.created_at > cutoff,
-        )
+        .where(UserToken.user_id == user_id, UserToken.purpose == purpose, UserToken.created_at > cutoff)
         .limit(1)
     )
     if recent:
         return
 
-    # Invalidate older unused links, then issue a fresh one.
     await db.execute(
         update(UserToken)
-        .where(
-            UserToken.user_id == user_id,
-            UserToken.purpose == PURPOSE_VERIFY_EMAIL,
-            UserToken.used_at.is_(None),
-        )
+        .where(UserToken.user_id == user_id, UserToken.purpose == purpose, UserToken.used_at.is_(None))
         .values(used_at=now)
     )
     raw, hashed = generate_token()
-    db.add(
-        UserToken(
-            user_id=user_id,
-            purpose=PURPOSE_VERIFY_EMAIL,
-            token_hash=hashed,
-            expires_at=now + timedelta(hours=settings.verification_token_ttl_hours),
-        )
-    )
+    db.add(UserToken(user_id=user_id, purpose=purpose, token_hash=hashed, expires_at=now + ttl))
     await db.commit()
-    background.add_task(send_verification_email, request.app.state.http_client, email, raw)
+    background.add_task(sender, request.app.state.http_client, email, raw)
+
+
+async def _issue_verification(db, user, request, background) -> None:
+    await _issue_token(
+        db, user, request, background,
+        purpose=PURPOSE_VERIFY_EMAIL,
+        ttl=timedelta(hours=settings.verification_token_ttl_hours),
+        sender=send_verification_email,
+    )
 
 
 @router.post(
@@ -201,3 +196,51 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> Token
 @router.get("/me", response_model=UserOut)
 async def me(user: User = Depends(get_current_user)) -> User:
     return user
+
+@router.post(
+    "/forgot-password",
+    response_model=MessageResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(forgot_limiter)],
+)
+async def forgot_password(
+    body: ForgotPasswordRequest,
+    request: Request,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> MessageResponse:
+    user = await db.scalar(select(User).where(User.email == body.email.lower()))
+    if user is not None and user.is_active:
+        await _issue_token(
+            db, user, request, background,
+            purpose=PURPOSE_RESET_PASSWORD,
+            ttl=timedelta(minutes=settings.password_reset_token_ttl_minutes),
+            sender=send_password_reset_email,
+        )
+    return MessageResponse(message=_RESET_MSG)
+
+
+@router.post("/reset-password", response_model=MessageResponse, dependencies=[Depends(reset_limiter)])
+async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)) -> MessageResponse:
+    now = _now()
+    password_hash = await hash_password(body.new_password)  # CPU-heavy: do it before taking the row lock
+
+    token = await db.scalar(
+        select(UserToken)
+        .where(UserToken.token_hash == hash_token(body.token), UserToken.purpose == PURPOSE_RESET_PASSWORD)
+        .with_for_update()
+    )
+    if token is None or token.used_at is not None or token.expires_at < now:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired reset link")
+
+    user = await db.get(User, token.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired reset link")
+
+    token.used_at = now
+    user.password_hash = password_hash
+    if not user.is_verified:  # they just proved they own the inbox
+        user.is_verified = True
+        user.email_verified_at = now
+    await db.commit()
+    return MessageResponse(message="Password updated. You can now log in.")
